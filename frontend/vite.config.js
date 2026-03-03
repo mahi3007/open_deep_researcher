@@ -5,6 +5,16 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    open: true
+    open: true,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
+        timeout: 600000, // 10 minutes proxy timeout
+        proxyTimeout: 600000,
+        rewrite: (path) => path.replace(/^\/api/, '')
+      }
+    }
   }
 })

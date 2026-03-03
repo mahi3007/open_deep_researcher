@@ -7,6 +7,7 @@ const Sidebar = ({
     onNewChat,
     onSelectConversation,
     onDeleteConversation,
+    onOpenDashboard,
     isOpen = false,
     onToggle,
     onMouseEnter,

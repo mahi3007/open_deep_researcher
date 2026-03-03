@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from typing import List
+from datetime import datetime
 import logging
 
 from models import (
@@ -19,7 +20,7 @@ from models import (
 )
 from memory import session_memory
 from database import db
-from graph.research_graph import build_graph
+from graph.research_graph import build_simple_graph as build_graph
 
 # Load environment variables
 load_dotenv()
@@ -72,6 +73,9 @@ async def health_check():
     }
 
 
+# Simple in-memory cache
+RESEARCH_CACHE = {}
+
 @app.post("/research", response_model=ResearchResponse)
 async def research(request: ResearchRequest):
     """
@@ -79,8 +83,19 @@ async def research(request: ResearchRequest):
     
     Accepts a research query and session ID, processes it through the
     LangGraph pipeline, and returns a comprehensive research report.
+    This uses the improved architecture if ENABLE_ADVANCED_PIPELINE is True.
     """
     try:
+        # Check cache
+        cache_key = f"{request.message.strip().lower()}"
+        if cache_key in RESEARCH_CACHE:
+            logger.info("Returning cached research result")
+            cached_result = RESEARCH_CACHE[cache_key]
+            # Update session ID and timestamp for the new request
+            cached_result["session_id"] = request.session_id
+            cached_result["timestamp"] = datetime.utcnow().isoformat()
+            return ResearchResponse(**cached_result)
+
         # Validate research graph is initialized
         if research_graph is None:
             raise HTTPException(
@@ -133,6 +148,28 @@ async def research(request: ResearchRequest):
         # Extract research report
         research_report = result.get("summary", "No summary generated")
         
+        # Collect advanced metrics
+        metrics = {
+            "iteration_count": result.get("iteration_count"),
+            "evidence_scores": result.get("evidence_scores"),
+            "orchestrator_decision": result.get("orchestrator_decision"),
+            "critique_decision": result.get("critique_decision"),
+            "critique_feedback": result.get("critique_feedback"),
+            "sub_questions": result.get("sub_questions"),
+            "refined_queries": result.get("refined_queries"),
+        }
+
+        # Log enhanced metrics from improved architecture
+        if metrics["iteration_count"]:
+            logger.info(f"Research iterations: {metrics['iteration_count']}")
+        if metrics["evidence_scores"]:
+            avg_score = sum(metrics["evidence_scores"].values()) / len(metrics["evidence_scores"]) if metrics["evidence_scores"] else 0
+            logger.info(f"Average evidence score: {avg_score:.2f}")
+        if metrics["orchestrator_decision"]:
+            logger.info(f"Orchestrator decision: {metrics['orchestrator_decision']}")
+        if metrics["critique_decision"]:
+            logger.info(f"Critique decision: {metrics['critique_decision']}")
+        
         # Store assistant response in memory (for backward compatibility)
         session_memory.add_message(request.session_id, "assistant", research_report)
         
@@ -142,10 +179,17 @@ async def research(request: ResearchRequest):
         
         logger.info(f"Research completed for session {request.session_id}")
         
-        return ResearchResponse(
-            response=research_report,
-            session_id=request.session_id
-        )
+        response_data = {
+            "response": research_report,
+            "session_id": request.session_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            **metrics
+        }
+        
+        # Cache the result
+        RESEARCH_CACHE[cache_key] = response_data
+        
+        return ResearchResponse(**response_data)
     
     except HTTPException:
         raise

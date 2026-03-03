@@ -3,8 +3,19 @@ load_dotenv()
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 import os
+import json
+import re
+import logging
+
+logger = logging.getLogger(__name__)
+
+def parse_json_with_fences(text: str):
+    """Strip markdown code fences and parse JSON — handles local model output quirks."""
+    # Remove ```json ... ``` or ``` ... ``` wrappers
+    cleaned = re.sub(r"```(?:json)?\s*", "", text).replace("```", "").strip()
+    return json.loads(cleaned)
 
 class FilterAgent:
     def __init__(self):
@@ -31,5 +42,24 @@ class FilterAgent:
         ])
 
     def run(self, results):
-        chain = self.prompt | self.llm | JsonOutputParser()
-        return chain.invoke({"data": results})
+        try:
+            # Truncate content to prevent context overflow on small models
+            MAX_RESULTS = 15
+            MAX_CONTENT_CHARS = 500
+
+            trimmed = []
+            for r in results[:MAX_RESULTS]:
+                trimmed.append({
+                    "title": r.get("title", "")[:200],
+                    "url": r.get("url", ""),
+                    "content": r.get("content", "")[:MAX_CONTENT_CHARS],
+                })
+
+            # Use StrOutputParser + manual fence-stripping to handle
+            # local models that wrap JSON in ```json ... ``` blocks
+            chain = self.prompt | self.llm | StrOutputParser()
+            raw = chain.invoke({"data": trimmed})
+            return parse_json_with_fences(raw)
+        except Exception as e:
+            logger.warning(f"Filter agent failed: {e}. Returning raw results (capped).")
+            return results[:6]  # Fallback: just return first 6 unfiltered

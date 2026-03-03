@@ -1,10 +1,83 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import jsPDF from 'jspdf';
 
 const ResearchSidePanel = ({ isOpen, onClose, report }) => {
+    const [copied, setCopied] = useState(false);
+    const [exported, setExported] = useState(false);
+
     if (!isOpen || !report) return null;
+
+    const handleCopyReport = () => {
+        if (!report.content) return;
+        navigator.clipboard.writeText(report.content);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleExportPDF = () => {
+        if (!report.content) return;
+
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = 20;
+        const maxWidth = pageWidth - (margin * 2);
+
+        // Add title
+        doc.setFontSize(18);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Deep Research AI - Report', margin, margin);
+
+        // Add report title
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        const titleLines = doc.splitTextToSize(report.title || 'Research Report', maxWidth);
+        doc.text(titleLines, margin, margin + 10);
+
+        // Add timestamp
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'italic');
+        const timestamp = new Date().toLocaleString();
+        doc.text(`Generated on: ${timestamp}`, margin, margin + 20);
+
+        // Add divider
+        doc.setLineWidth(0.5);
+        doc.line(margin, margin + 25, pageWidth - margin, margin + 25);
+
+        // Add content
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'normal');
+        
+        // Remove markdown artifacts for PDF text (simple approach)
+        const cleanContent = report.content
+            .replace(/#{1,6}\s?/g, '')
+            .replace(/\*\*/g, '')
+            .replace(/\*/g, '')
+            .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
+
+        const lines = doc.splitTextToSize(cleanContent, maxWidth);
+        let yPosition = margin + 35;
+
+        lines.forEach((line) => {
+            if (yPosition > pageHeight - margin) {
+                doc.addPage();
+                yPosition = margin;
+            }
+            doc.text(line, margin, yPosition);
+            yPosition += 7;
+        });
+
+        // Save the PDF
+        const safeTitle = (report.title || 'research-report').toLowerCase().replace(/[^a-z0-9]/g, '-');
+        const filename = `${safeTitle}-${new Date().getTime()}.pdf`;
+        doc.save(filename);
+
+        setExported(true);
+        setTimeout(() => setExported(false), 2000);
+    };
 
     return (
         <motion.div
@@ -117,17 +190,35 @@ const ResearchSidePanel = ({ isOpen, onClose, report }) => {
 
             {/* Footer Actions */}
             <div className="p-6 border-t border-slate-800 bg-slate-900/50 flex gap-3 flex-shrink-0">
-                <button className="flex-1 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg transition-all duration-200 border border-slate-700 flex items-center justify-center gap-2">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                    </svg>
-                    Export PDF
+                <button 
+                    onClick={handleExportPDF}
+                    className="flex-1 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg transition-all duration-200 border border-slate-700 flex items-center justify-center gap-2"
+                >
+                    {exported ? (
+                        <svg className="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                    ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                        </svg>
+                    )}
+                    {exported ? 'Exported!' : 'Export PDF'}
                 </button>
-                <button className="flex-1 px-4 py-2.5 bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center gap-2">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Copy Report
+                <button 
+                    onClick={handleCopyReport}
+                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+                >
+                    {copied ? (
+                        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                    ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                    )}
+                    {copied ? 'Copied!' : 'Copy Report'}
                 </button>
             </div>
         </motion.div>

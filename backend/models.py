@@ -14,6 +14,15 @@ class ResearchResponse(BaseModel):
     response: str = Field(..., description="AI-generated research report")
     session_id: str = Field(..., description="Session identifier")
     timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    
+    # Advanced metrics
+    iteration_count: Optional[int] = None
+    evidence_scores: Optional[dict] = None
+    orchestrator_decision: Optional[str] = None
+    critique_decision: Optional[str] = None
+    critique_feedback: Optional[str] = None
+    sub_questions: Optional[List[str]] = None
+    refined_queries: Optional[List[str]] = None
 
 
 class ErrorResponse(BaseModel):

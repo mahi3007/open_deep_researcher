@@ -85,8 +85,12 @@ class WriterAgent:
 
     def run(self, search_results):
         # Format search results for the prompt
+        # Cap content per source to prevent OOM on small local models
+        MAX_SOURCES = 6
+        MAX_CONTENT_CHARS = 800
+
         formatted_results = ""
-        for idx, result in enumerate(search_results, 1):
+        for idx, result in enumerate(search_results[:MAX_SOURCES], 1):
             title = result.get("title", "Untitled")
             url = result.get("url", "")
             content = result.get("content", "")
@@ -95,10 +99,11 @@ class WriterAgent:
                 formatted_results += f"\\n\\nSource {idx}:\\n"
                 formatted_results += f"Title: {title}\\n"
                 formatted_results += f"URL: {url}\\n"
-                formatted_results += f"Content: {content[:3000]}\\n"  # Increased from 1000 to 3000 for more comprehensive reports
+                formatted_results += f"Content: {content[:MAX_CONTENT_CHARS]}\\n"
         
         if not formatted_results.strip():
             return "# Research Report\\n\\n## No Results\\n\\nNo research results were available to compile into a report."
         
         chain = self.prompt | self.llm | StrOutputParser()
         return chain.invoke({"results": formatted_results})
+

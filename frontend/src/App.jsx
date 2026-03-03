@@ -12,8 +12,9 @@ import ResearchPlan from './components/ResearchPlan';
 import ResearchCard from './components/ResearchCard';
 import ResearchSidePanel from './components/ResearchSidePanel';
 import FloatingLines from './components/FloatingLines';
+import MetricsDashboard from './components/MetricsDashboard';
 import { motion, AnimatePresence } from 'framer-motion';
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://127.0.0.1:8000'; // Direct backend URL to bypass proxy issues
 
 function App() {
     const [conversations, setConversations] = useState([]);
@@ -24,6 +25,7 @@ function App() {
     const [pendingPlan, setPendingPlan] = useState(null);
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
     const [selectedReport, setSelectedReport] = useState(null);
+    const [showDashboard, setShowDashboard] = useState(false);
     const messagesEndRef = useRef(null);
 
     // Sidebar collapse state
@@ -213,6 +215,8 @@ function App() {
 
         // Store session ID for backend
         localStorage.setItem('research_session_id', newSessionId);
+
+        return { id: newConversation.id, sessionId: newSessionId };
     };
 
     const switchConversation = (conversationId) => {
@@ -245,11 +249,11 @@ function App() {
         ));
     };
 
-    const updateCurrentConversation = (newMessages) => {
+    const updateCurrentConversation = (newMessages, conversationId = currentConversationId) => {
         // Save ALL messages including plan and research_result for proper persistence
         console.log('[DEBUG] Saving messages to conversation:', newMessages.map(m => ({ role: m.role, hasContent: !!m.content })));
         setConversations(prev => prev.map(conv =>
-            conv.id === currentConversationId
+            conv.id === conversationId
                 ? { ...conv, messages: newMessages, updatedAt: new Date().toISOString() }
                 : conv
         ));
@@ -283,21 +287,23 @@ function App() {
     };
 
     const handleSendMessage = async (messageText) => {
-        console.log('[DEBUG] handleSendMessage called with:', {
-            messageText,
-            sessionId,
-            currentConversationId,
-            messageLength: messageText?.length
-        });
-        if (!messageText.trim() || !sessionId) {
-            console.log('[DEBUG] Returning early - Missing:', {
-                hasText: !!messageText.trim(),
-                hasSessionId: !!sessionId,
-                sessionIdValue: sessionId,
-                conversationIdValue: currentConversationId
-            });
-            return;
+        if (!messageText.trim()) return;
+
+        let activeSessionId = sessionId;
+        let activeConversationId = currentConversationId;
+
+        // Ensure we have an active session
+        if (!activeSessionId || !activeConversationId) {
+            console.log('[DEBUG] No active session, creating new one...');
+            const newSession = await createNewConversation();
+            activeSessionId = newSession.sessionId;
+            activeConversationId = newSession.id;
         }
+
+        console.log('[DEBUG] handleSendMessage using:', {
+            activeSessionId,
+            activeConversationId
+        });
 
         // Add user message to chat
         const userMessage = {
@@ -308,67 +314,94 @@ function App() {
 
         const newMessages = [...messages, userMessage];
         setMessages(newMessages);
-        updateCurrentConversation(newMessages);
+        updateCurrentConversation(newMessages, activeConversationId);
 
         // Save user message to backend
         try {
-            console.log('[DEBUG] Saving user message to backend:', currentConversationId);
-            await axios.post(`${API_BASE_URL}/conversations/${currentConversationId}/messages`, {
+            await axios.post(`${API_BASE_URL}/conversations/${activeConversationId}/messages`, {
                 role: 'user',
                 content: messageText,
                 timestamp: userMessage.timestamp
             });
-            console.log('[DEBUG] User message saved successfully');
         } catch (error) {
             console.error('[ERROR] Failed to save user message to backend:', error.response?.data || error.message);
         }
 
         // Update conversation title if this is the first message
         if (messages.length === 0) {
-            updateConversationTitle(currentConversationId, messageText);
+            updateConversationTitle(activeConversationId, messageText);
         }
 
         setIsLoading(true);
 
         try {
-            // Phase 1: Generate research plan
-            const planResponse = await axios.post(`${API_BASE_URL}/generate-plan`, {
-                message: messageText,
-                session_id: sessionId,
-            });
-
-            // Add plan message to chat
-            const planMessage = {
-                role: 'plan',
-                content: planResponse.data,
-                timestamp: planResponse.data.timestamp,
-                originalMessage: messageText,
+            // Add a status message to show research is starting
+            const statusMessage = {
+                role: 'status',
+                content: '🧠 Deep Research Agent active: Analyzing query and starting iterative research...',
+                timestamp: new Date().toISOString(),
             };
 
-            const messagesWithPlan = [...newMessages, planMessage];
-            setMessages(messagesWithPlan);
-            updateCurrentConversation(messagesWithPlan);
-            setPendingPlan(planResponse.data);
+            setMessages(prev => [...prev, statusMessage]);
 
-            // Save plan message to backend
+            // Call the full research pipeline directly
+            const response = await axios.post(`${API_BASE_URL}/research`, {
+                message: messageText,
+                session_id: activeSessionId,
+            }, {
+                timeout: 600000 // 10 minutes timeout for deep research
+            });
+
+            const data = response.data;
+
+            // Construct research result message with metrics
+            const researchResultMessage = {
+                role: 'research_result',
+                content: data.response,
+                title: messageText.length > 50 ? messageText.substring(0, 50) + '...' : messageText,
+                summary: `Research completed on: ${messageText.substring(0, 30)}...`,
+                timestamp: data.timestamp,
+                // Add advanced metrics
+                metrics: {
+                    iteration_count: data.iteration_count,
+                    evidence_scores: data.evidence_scores,
+                    orchestrator_decision: data.orchestrator_decision,
+                    critique_decision: data.critique_decision,
+                    sub_questions: data.sub_questions
+                }
+            };
+
+            // Update messages: Remove status, add result
+            const finalMessages = [...newMessages, researchResultMessage];
+            setMessages(finalMessages);
+            updateCurrentConversation(finalMessages, activeConversationId);
+
+            // Save research_result message to backend
             try {
-                console.log('[DEBUG] Saving plan message to backend:', currentConversationId);
-                await axios.post(`${API_BASE_URL}/conversations/${currentConversationId}/messages`, {
-                    role: 'plan',
-                    content: JSON.stringify(planResponse.data),
-                    timestamp: planResponse.data.timestamp
+                await axios.post(`${API_BASE_URL}/conversations/${activeConversationId}/messages`, {
+                    role: 'research_result',
+                    content: JSON.stringify({
+                        response: data.response,
+                        title: researchResultMessage.title,
+                        summary: researchResultMessage.summary,
+                        metrics: researchResultMessage.metrics
+                    }),
+                    timestamp: data.timestamp
                 });
-                console.log('[DEBUG] Plan message saved successfully');
+                console.log('[DEBUG] Research_result message saved successfully');
             } catch (error) {
-                console.error('[ERROR] Failed to save plan message to backend:', error.response?.data || error.message);
+                console.error('[ERROR] Failed to save research_result message to backend:', error.response?.data || error.message);
             }
-        } catch (err) {
-            console.error('Error generating plan:', err);
 
-            let errorMessage = 'Failed to generate research plan. Please try again.';
+        } catch (err) {
+            console.error('Error executing research:', err);
+
+            let errorMessage = 'Failed to execute research. Please try again.';
 
             if (err.response) {
                 errorMessage = `Error: ${err.response.data.detail || err.response.statusText}`;
+            } else if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+                errorMessage = 'Request timed out. The research is taking too long — try a simpler query, or increase the timeout.';
             } else if (err.request) {
                 errorMessage = 'Cannot connect to server. Make sure the backend is running on http://localhost:8000';
             }
@@ -388,98 +421,8 @@ function App() {
         }
     };
 
-    const handleStartResearch = async () => {
-        if (!pendingPlan) return;
-
-        // Add a system status message to show research is being executed
-        const statusMessage = {
-            role: 'status',
-            content: '🔬 Executing research plan...',
-            timestamp: new Date().toISOString(),
-        };
-
-        const messagesWithStatus = [...messages, statusMessage];
-        setMessages(messagesWithStatus);
-        updateCurrentConversation(messagesWithStatus);
-
-        // Save status message to backend
-        try {
-            console.log('[DEBUG] Saving status message to backend:', currentConversationId);
-            await axios.post(`${API_BASE_URL}/conversations/${currentConversationId}/messages`, {
-                role: 'status',
-                content: statusMessage.content,
-                timestamp: statusMessage.timestamp
-            });
-            console.log('[DEBUG] Status message saved successfully');
-        } catch (error) {
-            console.error('[ERROR] Failed to save status message to backend:', error.response?.data || error.message);
-        }
-
-        setIsLoading(true);
-        setPendingPlan(null);
-
-        try {
-            // Phase 2: Execute the approved plan
-            const response = await axios.post(`${API_BASE_URL}/execute-plan`, {
-                message: pendingPlan.plan_title,
-                sub_questions: pendingPlan.sub_questions,
-                session_id: sessionId,
-            });
-
-            // Add research result as a card message
-            const researchResultMessage = {
-                role: 'research_result',
-                content: response.data.response,
-                title: pendingPlan.plan_title,
-                summary: `Research completed on: ${pendingPlan.plan_title}`,
-                timestamp: response.data.timestamp,
-            };
-
-            const updatedMessages = [...messagesWithStatus, researchResultMessage];
-            setMessages(updatedMessages);
-            updateCurrentConversation(updatedMessages);
-
-            // Save research_result message to backend
-            try {
-                console.log('[DEBUG] Saving research_result message to backend:', currentConversationId);
-                await axios.post(`${API_BASE_URL}/conversations/${currentConversationId}/messages`, {
-                    role: 'research_result',
-                    content: JSON.stringify({
-                        response: response.data.response,
-                        title: pendingPlan.plan_title,
-                        summary: `Research completed on: ${pendingPlan.plan_title}`
-                    }),
-                    timestamp: response.data.timestamp
-                });
-                console.log('[DEBUG] Research_result message saved successfully');
-            } catch (error) {
-                console.error('[ERROR] Failed to save research_result message to backend:', error.response?.data || error.message);
-            }
-        } catch (err) {
-            console.error('Error executing research:', err);
-
-            let errorMessage = 'Failed to execute research. Please try again.';
-
-            if (err.response) {
-                errorMessage = `Error: ${err.response.data.detail || err.response.statusText}`;
-            } else if (err.request) {
-                errorMessage = 'Cannot connect to server. Make sure the backend is running on http://localhost:8000';
-            }
-
-            // Add error message to chat
-            const errorMsg = {
-                role: 'assistant',
-                content: `⚠️ **Error**: ${errorMessage}`,
-                timestamp: new Date().toISOString(),
-            };
-
-            const updatedMessages = [...messagesWithStatus, errorMsg];
-            setMessages(updatedMessages);
-            updateCurrentConversation(updatedMessages);
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    // Deprecated: simplify start research since we now do it in one step
+    const handleStartResearch = () => { };
 
     const handleEditPlan = () => {
         // TODO: Implement plan editing functionality
@@ -561,6 +504,7 @@ function App() {
                 onNewChat={createNewConversation}
                 onSelectConversation={switchConversation}
                 onDeleteConversation={deleteConversation}
+                onOpenDashboard={() => setShowDashboard(true)}
                 isOpen={isSidebarOpen}
                 onToggle={handleSidebarToggle}
                 onMouseEnter={handleSidebarMouseEnter}
@@ -658,6 +602,7 @@ function App() {
                                                     <ResearchCard
                                                         title={message.title}
                                                         summary={message.summary}
+                                                        metrics={message.metrics}
                                                         onClick={() => handleOpenReport(message)}
                                                     />
                                                 </div>
@@ -705,6 +650,15 @@ function App() {
                     onClose={handleCloseSidePanel}
                     report={selectedReport}
                 />
+
+                <AnimatePresence>
+                    {showDashboard && (
+                        <MetricsDashboard
+                            conversations={conversations}
+                            onClose={() => setShowDashboard(false)}
+                        />
+                    )}
+                </AnimatePresence>
             </div>
         </div>
     );
