@@ -1,32 +1,72 @@
-# Project Title
+# Open Deep Researcher
 
-This is an example of comprehensive documentation for the project. It includes detailed sections on architecture, flow, and functionality.
+## Comprehensive Architecture Diagrams
 
-## Architecture Diagrams
+### Local Models Pipeline
+```plaintext
++------------------+
+| Local Data Source |
++------------------+
+          |
+          v
++------------------+
+|   Preprocessing   |
++------------------+
+          |
+          v
++------------------+
+|   Model Training  |
++------------------+
+          |
+          v
++------------------+
+|   Model Output    |
++------------------+
+```
 
-![Architecture Diagram](link_to_architecture_diagram)
+### Cloud Models Pipeline
+```plaintext
++------------------+
+|  Cloud Data Source |
++------------------+
+          |
+          v
++------------------+
+|   Cloud API Call   |
++------------------+
+          |
+          v
++------------------+
+|    Model Inference  |
++------------------+
+          |
+          v
++------------------+
+|   Result Processing  |
++------------------+
+```
 
-## Visual Flow Charts
+## Documentation
 
-![Flow Chart](link_to_flow_chart)
-
-## Documentation Sections
-
-### Introduction
-A brief introduction to the project, its purpose, and its significance.
-
-### Features
-- Feature 1: Description
-- Feature 2: Description
+### Project Structure
+- `src/`: Contains the source code
+- `docs/`: Contains the documentation
+- `tests/`: Contains the test cases
 
 ### Setup Instructions
-Detailed instructions on how to set up the project in your local environment.
+1. Clone the repository: `git clone https://github.com/mahi3007/Open_Deep_Researcher.git`
+2. Navigate to the project folder: `cd Open_Deep_Researcher`
+3. Install dependencies: `pip install -r requirements.txt`
 
-### Usage
-Instructions on how to use the project and its features.
+### API Documentation
+- **GET /models**: Retrieve a list of available models.
+- **POST /train**: Train a model with the provided parameters.
+- **GET /predict**: Make predictions using a trained model.
 
-### Contributing
-Guidelines for contributing to the project.
+### Features
+- Support for multiple model types.
+- Easy-to-use API for local and cloud models.
 
-### License
-Information about the project's licensing.
+---
+
+*Generated on 2026-03-03 18:38:01 UTC*
