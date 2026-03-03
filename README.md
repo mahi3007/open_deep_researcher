@@ -1,261 +1,268 @@
-# Deep Research AI - Milestone 3: UI and Memory Integration
+# Open Deep Researcher — Agentic LLM Research Framework
 
-A production-quality, ChatGPT-like web interface for an agentic AI research system powered by LangGraph.
+A production-quality, ChatGPT-like web interface for an agentic AI research system powered by LangGraph. Supports both **local LLMs via LM Studio** and **cloud APIs (OpenAI)**.
+
+---
 
 ## 🌟 Features
 
-- **Modern ChatGPT-Style UI**: Premium dark-mode interface with glassmorphism effects
-- **AI-Powered Research**: Multi-agent pipeline (Planner → Searcher → Writer)
-- **Session Memory**: Persistent conversation history with context-aware responses
-- **Real-time Interaction**: Smooth animations, typing indicators, and auto-scroll
-- **Markdown Support**: Formatted research reports with headings, lists, and emphasis
-- **Copy-to-Clipboard**: Easy sharing of research results
+- **Modern ChatGPT-Style UI**: Premium dark-mode interface with glassmorphism effects and floating animated background
+- **Multi-Agent Research Pipeline**: Pluggable agent graph (Planner → Searcher → Writer)
+- **Local LLM Support**: Works with LM Studio (llama, qwen, mistral, etc.) — no cloud API required
+- **Session Memory & Conversations**: Persistent multi-turn conversation history stored in SQLite
+- **Research Side Panel**: Full-screen report viewer with markdown rendering
+- **Metrics Dashboard**: Conversation analytics and research metrics
+- **Error Resilience**: Graceful fallbacks for search timeouts and LLM failures
+
+---
 
 ## 🏗️ Architecture
 
-```mermaid
-graph LR
-    A[Frontend React App] -->|HTTP POST| B[FastAPI Backend]
-    B -->|Session Memory| C[In-Memory Store]
-    B -->|Invoke| D[LangGraph Pipeline]
-    D -->|Planner| E[Sub-questions]
-    E -->|Searcher| F[Tavily Search]
-    F -->|Writer| G[Research Report]
-    G -->|Response| B
-    B -->|JSON| A
+### Active Pipeline (Simple Linear Graph)
+
+Optimised for local small models (3B–7B parameters):
+
+```
+User Query
+    │
+    ▼
+[Planner Agent]  →  Breaks topic into 4–6 focused sub-questions
+    │
+    ▼
+[Searcher Agent] →  Tavily web search per sub-question (parallel)
+    │
+    ▼
+[Writer Agent]   →  Synthesises results into a structured markdown report
+    │
+    ▼
+Research Report (returned to frontend)
 ```
 
-### Components
+### Extended Pipeline (Complex Iterative Graph — cloud models)
 
-**Backend** (`/backend`)
-- `main.py`: FastAPI application with CORS and endpoints
-- `models.py`: Pydantic request/response models
-- `memory.py`: Thread-safe session memory manager
+Available via `build_graph()` in `research_graph.py` for use with high-context cloud models:
 
-**Frontend** (`/frontend`)
-- `App.jsx`: Main application with state management
-- `components/Header.jsx`: App header with branding
-- `components/MessageBubble.jsx`: Message display with markdown
-- `components/ChatInput.jsx`: Multi-line input with shortcuts
-- `components/TypingIndicator.jsx`: Animated loading indicator
+```
+Planner → Searcher → Filter → Evidence Judge → Orchestrator
+                                                    │
+                              ┌─────────────────────┤
+                              ▼                     ▼
+                        Query Refiner          Compressor
+                              │                     │
+                              └──→ Searcher     Writer → Self-Critique
+                                                         │
+                                              ┌──────────┤
+                                              ▼          ▼
+                                           Accept     Re-run/Improve
+```
 
-**Research Pipeline** (`/src`)
-- `graph/research_graph.py`: LangGraph workflow
-- `agents/planner.py`: Query decomposition
-- `agents/searcher.py`: Web search with Tavily
-- `agents/writer.py`: Report generation
+> ⚠️ **Note:** The iterative graph requires a large-context model (GPT-4, Claude, etc.). Local 3B–7B models will OOM on the repeated filter/evidence loops. Use `build_simple_graph()` (the default) for local models.
 
-## 🚀 Setup Instructions
+---
+
+## 🤖 Agent Reference
+
+| Agent | File | Role |
+|---|---|---|
+| **Planner** | `src/agents/planner.py` | Decomposes topic into sub-questions |
+| **Searcher** | `src/agents/searcher.py` | Parallel Tavily web search with timeout resilience |
+| **Filter** | `src/agents/filter.py` | Deduplicates and scores results (iterative graph only) |
+| **Evidence Judge** | `src/agents/evidence_judge.py` | Scores source credibility (iterative graph only) |
+| **Orchestrator** | `src/agents/orchestrator.py` | Decides proceed vs. refine (iterative graph only) |
+| **Query Refiner** | `src/agents/query_refiner.py` | Improves weak sub-questions (iterative graph only) |
+| **Compressor** | `src/agents/compressor.py` | Condenses knowledge (iterative graph only) |
+| **Writer** | `src/agents/writer.py` | Generates structured markdown research report |
+| **Self-Critique** | `src/agents/self_critique.py` | Evaluates report quality (iterative graph only) |
+
+---
+
+## 🚀 Setup
 
 ### Prerequisites
-
 - Python 3.9+
 - Node.js 18+
-- npm or yarn
+- LM Studio (for local LLM) **or** an OpenAI API key
 
-### Environment Variables
+### 1. Environment Variables
 
 Create a `.env` file in the project root:
 
+**Option A — Local LLM via LM Studio (recommended for offline use):**
 ```env
-# LLM Configuration
-LLM_API_URL=https://api.openai.com/v1
-LLM_API_KEY=your_openai_api_key
-MODEL_NAME=gpt-4
-
-# Tavily Search API
-TAVILY_API_KEY=your_tavily_api_key
+TAVILY_API_KEY="your_tavily_api_key"
+LLM_API_URL="http://localhost:1234/v1"
+LLM_API_KEY="lm-studio"
+MODEL_NAME="llama-3.2-3b-instruct"
 ```
 
-### Backend Setup
+> In LM Studio: Local Server tab → load your model → **disable authentication** → Start Server on `http://localhost:1234`
 
-1. Install Python dependencies:
-```bash
-pip install -r requirements.txt
+**Option B — OpenAI Cloud API:**
+```env
+TAVILY_API_KEY="your_tavily_api_key"
+LLM_API_URL="https://api.openai.com/v1"
+LLM_API_KEY="sk-your-openai-key"
+MODEL_NAME="gpt-4o-mini"
 ```
 
-2. Start the backend server:
+> Get a Tavily key at [tavily.com](https://tavily.com) (free tier available).
+
+### 2. Backend
+
 ```bash
 cd backend
+pip install -r ../requirements.txt
 python -m uvicorn main:app --reload
 ```
 
-Or use the startup script:
-```bash
-cd backend
-start.bat  # Windows
-```
+Backend runs on: `http://localhost:8000`
 
-Backend will run on: `http://localhost:8000`
+### 3. Frontend
 
-### Frontend Setup
-
-1. Install Node dependencies:
 ```bash
 cd frontend
 npm install
-```
-
-2. Start the development server:
-```bash
 npm run dev
 ```
 
-Or use the startup script:
-```bash
-cd frontend
-start.bat  # Windows
-```
+Frontend runs on: `http://localhost:5173`
 
-Frontend will run on: `http://localhost:5173`
+---
 
 ## 📡 API Endpoints
 
-### `POST /research`
-Process a research query with session memory.
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/research` | Run full research pipeline |
+| `GET` | `/health` | Health check |
+| `GET` | `/conversations` | List all conversations |
+| `POST` | `/conversations` | Create conversation |
+| `GET` | `/conversations/{id}` | Get conversation with messages |
+| `PUT` | `/conversations/{id}` | Update conversation title |
+| `DELETE` | `/conversations/{id}` | Delete conversation |
+| `POST` | `/conversations/{id}/messages` | Save message to conversation |
+| `GET` | `/session/new` | Generate new session ID |
+| `POST` | `/session/clear` | Clear session memory |
 
-**Request:**
+### Research Request/Response
+
 ```json
+// POST /research
 {
-  "message": "Explain quantum computing",
+  "message": "Agentic AI in the gaming industry",
   "session_id": "uuid-v4-string"
 }
-```
 
-**Response:**
-```json
+// Response
 {
-  "response": "# Quantum Computing\n\n**Executive Summary**...",
+  "response": "# Agentic AI in Gaming\n\n## Executive Summary...",
   "session_id": "uuid-v4-string",
-  "timestamp": "2026-01-09T22:00:00.000Z"
+  "timestamp": "2026-03-03T22:00:00.000Z"
 }
 ```
 
-### `GET /health`
-Health check endpoint.
+---
 
-### `GET /session/new`
-Generate a new session ID.
+## 🔧 Local Model Tuning
 
-### `POST /session/clear`
-Clear conversation history for a session.
+When running with a small local model (≤7B params), the following limits are already applied:
 
-## 🎨 UI Features
+| Setting | Value | Reason |
+|---|---|---|
+| Tavily results per query | 3 | Reduces search payload |
+| Filter input cap | 15 results, 500 chars each | Prevents OOM in filter agent |
+| Writer input cap | 6 sources, 800 chars each | Keeps writer prompt within context window |
+| Pipeline mode | Simple (linear) | Avoids iterative loops that exceed context |
 
-### Design Elements
-- **Dark Mode Theme**: Gradient background with glassmorphism
-- **Premium Typography**: Inter font family
-- **Smooth Animations**: Framer Motion for message transitions
-- **Custom Scrollbar**: Styled scrollbar for better aesthetics
-- **Responsive Layout**: Works on desktop and mobile
+To switch to the full iterative pipeline (for cloud models), change `main.py`:
+```python
+# From:
+from graph.research_graph import build_simple_graph as build_graph
+# To:
+from graph.research_graph import build_graph
+```
 
-### Interactions
-- **Enter**: Send message
-- **Shift + Enter**: New line
-- **Copy Button**: Copy assistant responses
-- **Clear Chat**: Reset conversation
-- **Auto-scroll**: Always shows latest message
-
-## 🔧 Session Memory
-
-The system maintains conversation context across multiple turns:
-
-1. **Session Creation**: Unique UUID generated on first visit
-2. **LocalStorage**: Session ID persisted in browser
-3. **Context Injection**: Previous messages inform new responses
-4. **Thread Safety**: Concurrent request handling with locks
-5. **Auto-cleanup**: Expired sessions removed (24-hour timeout)
-
-## 🧪 Testing
-
-### Manual Testing
-
-1. **Single Query Test**:
-   - Open `http://localhost:5173`
-   - Send: "What is machine learning?"
-   - Verify formatted response appears
-
-2. **Multi-turn Conversation**:
-   - Send: "Explain neural networks"
-   - Send: "How do they differ from traditional algorithms?"
-   - Verify context is maintained
-
-3. **Session Persistence**:
-   - Send a message
-   - Refresh the page
-   - Verify conversation history persists
-
-4. **Error Handling**:
-   - Stop backend server
-   - Send a message
-   - Verify error message displays
+---
 
 ## 📦 Project Structure
 
 ```
 OpenDeepResearcher_project/
 ├── backend/
-│   ├── main.py              # FastAPI application
-│   ├── models.py            # Pydantic models
-│   ├── memory.py            # Session memory
-│   └── start.bat            # Startup script
+│   ├── main.py              # FastAPI app — endpoints, CORS, pipeline invocation
+│   ├── models.py            # Pydantic request/response models
+│   ├── memory.py            # Thread-safe in-memory session store
+│   └── database.py          # SQLite conversation persistence
 ├── frontend/
-│   ├── src/
-│   │   ├── components/      # React components
-│   │   ├── App.jsx          # Main app
-│   │   ├── main.jsx         # Entry point
-│   │   └── index.css        # Global styles
-│   ├── package.json
-│   ├── vite.config.js
-│   ├── tailwind.config.js
-│   └── start.bat            # Startup script
+│   └── src/
+│       ├── App.jsx                      # Main app — state, API calls, routing
+│       ├── components/
+│       │   ├── Sidebar.jsx              # Conversation list + navigation
+│       │   ├── Header.jsx               # Top bar
+│       │   ├── MessageBubble.jsx        # Chat message with markdown
+│       │   ├── ChatInput.jsx            # Multi-line input with shortcuts
+│       │   ├── ResearchCard.jsx         # Collapsed research result card
+│       │   ├── ResearchSidePanel.jsx    # Full-screen report viewer
+│       │   ├── MetricsDashboard.jsx     # Analytics dashboard
+│       │   ├── ResearchPlan.jsx         # Plan display (extended pipeline)
+│       │   ├── FloatingLines.jsx        # Animated background
+│       │   └── TypingIndicator.jsx      # Loading animation
 ├── src/
-│   ├── agents/              # AI agents
-│   ├── graph/               # LangGraph pipeline
-│   └── utils/
+│   ├── agents/
+│   │   ├── planner.py           # Sub-question generation
+│   │   ├── searcher.py          # Tavily search with error resilience
+│   │   ├── writer.py            # Report generation
+│   │   ├── filter.py            # Source deduplication (iterative only)
+│   │   ├── compressor.py        # Knowledge compression (iterative only)
+│   │   ├── evidence_judge.py    # Source credibility scoring (iterative only)
+│   │   ├── orchestrator.py      # Pipeline routing decisions (iterative only)
+│   │   ├── query_refiner.py     # Sub-question refinement (iterative only)
+│   │   └── self_critique.py     # Report quality evaluation (iterative only)
+│   └── graph/
+│       └── research_graph.py    # LangGraph state machine (simple + iterative)
+├── config/
+│   └── research_config.py       # Centralised config constants
+├── tests/                       # Test suite
 ├── requirements.txt
-└── README.md
+├── TROUBLESHOOTING.md
+└── .env                         # API keys (not committed)
 ```
-
-## 🎯 Usage Example
-
-1. Start both backend and frontend servers
-2. Open browser to `http://localhost:5173`
-3. Type your research query: "Future of renewable energy"
-4. Wait for the AI to research and generate a comprehensive report
-5. Ask follow-up questions to dive deeper
-6. Copy results using the copy button
-7. Clear conversation when starting a new topic
-
-## 🚀 Production Deployment
-
-For production use:
-
-1. **Backend**:
-   - Use production ASGI server (Gunicorn + Uvicorn)
-   - Migrate to Redis for session storage
-   - Add rate limiting and authentication
-   - Enable HTTPS
-
-2. **Frontend**:
-   - Build production bundle: `npm run build`
-   - Serve with Nginx or CDN
-   - Update API_BASE_URL to production endpoint
-   - Enable analytics and monitoring
-
-## 🤝 Contributing
-
-This is Milestone 3 of the Deep Research AI project. Future enhancements:
-- Streaming responses
-- Export to PDF/Markdown
-- Multi-language support
-- Voice input
-- Research history dashboard
-
-## 📄 License
-
-MIT License - See LICENSE file for details
 
 ---
 
-**Built with ❤️ using React, FastAPI, and LangGraph**
+## 🎨 UI Overview
+
+- **Sidebar**: Hover-to-expand conversation list with delete support
+- **Chat Area**: Animated message bubbles, status indicators, research result cards
+- **Research Cards**: Click to open full report in a split-panel side view
+- **Floating Background**: Interactive parallax animated lines
+
+### Keyboard Shortcuts
+| Key | Action |
+|---|---|
+| `Enter` | Send message |
+| `Shift + Enter` | New line |
+
+---
+
+## 🧪 Troubleshooting
+
+See [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) for common issues.
+
+| Error | Cause | Fix |
+|---|---|---|
+| `ConnectTimeout` to LM Studio IP | Wrong IP or LM Studio not accepting remote connections | Use `localhost:1234` or enable remote connections in LM Studio |
+| `401 Unauthorized` | LM Studio authentication enabled | Disable auth in LM Studio → Local Server → Authentication |
+| `Model has crashed (Exit code: 18446744...)` | OOM — model received too large a context | Using simple graph + content limits already applied |
+| `Request timed out` | LLM inference too slow (large model) | Use a smaller/quantized model in LM Studio |
+| `insufficient_quota` (OpenAI 429) | No billing credits on OpenAI account | Add credits at platform.openai.com/billing |
+
+---
+
+## 📄 License
+
+MIT License — see [LICENSE](./LICENSE) for details.
+
+---
+
+**Built with React, FastAPI, LangGraph, Tavily, and LM Studio**
